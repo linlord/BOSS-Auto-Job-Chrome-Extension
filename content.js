@@ -266,6 +266,11 @@
     return /\*{3,}/.test(String(value || ""));
   }
 
+  function isValidApiKeyForHeader(value) {
+    const key = String(value || "").trim();
+    return Boolean(key && /^[\x21-\x7e]+$/.test(key) && !/\s/.test(key));
+  }
+
   async function hydrateAiSettingsFromExtensionStorage() {
     const stored = await storageLocalGet([AI_STORAGE_KEY]);
     const next = stored?.[AI_STORAGE_KEY] || {};
@@ -311,6 +316,7 @@
     const currentStored = await storageLocalGet([AI_STORAGE_KEY]);
     const existing = currentStored?.[AI_STORAGE_KEY] || {};
     const pendingApiKey = isMaskedApiKey(state.aiSettings.apiKey) ? "" : String(state.aiSettings.apiKey || "").trim();
+    if (pendingApiKey && !isValidApiKeyForHeader(pendingApiKey)) return false;
     const nextApiKey = String(pendingApiKey || existing.apiKey || "").trim();
     const nextModel = String(state.aiSettings.model || existing.model || "deepseek-v4-flash").trim() || "deepseek-v4-flash";
     const saved = await storageLocalSet({
@@ -1518,6 +1524,24 @@
     return { matched: false, strong: false, reason: "title_mismatch" };
   }
 
+  function hasStrongDetailMismatch(match) {
+    return Boolean(match?.reason && String(match.reason).startsWith("code_mismatch:"));
+  }
+
+  function detailLogPayload(result) {
+    return {
+      signature: result?.signature || "",
+      matched: Boolean(result?.matched),
+      matchReason: result?.matchReason || "",
+      hrefMatched: Boolean(result?.hrefMatched),
+      selected: Boolean(result?.selected),
+      changed: Boolean(result?.changed),
+      textLength: String(result?.text || "").length,
+      fullTextLength: String(result?.fullText || "").length,
+      textPreview: String(result?.text || result?.fullText || "").replace(/\s+/g, " ").trim().slice(0, 320)
+    };
+  }
+
   function detailSnapshot() {
     const candidate = rightPanelCandidate();
     const fullText = candidate?.fullText || "";
@@ -1560,7 +1584,8 @@
       const match = detailMatchesJob(snapshot.fullText || snapshot.text, job);
       const hrefMatched = Boolean(targetHref && snapshot.hrefs.includes(targetHref));
       const selected = jobCardLooksSelected(job);
-      const confirmed = hrefMatched || (match.matched && (changed || match.strong || selected));
+      const titleConfirmed = match.matched && !hasStrongDetailMismatch(match) && snapshot.text.length > 160;
+      const confirmed = hrefMatched || titleConfirmed || (match.matched && (changed || match.strong || selected));
       if (snapshot.text.length > 80 && confirmed) {
         return {
           ok: true,
@@ -1606,7 +1631,6 @@
     if (!clickTarget) return { method: "none", href: "" };
     const preventNavigation = event => {
       event.preventDefault();
-      event.stopPropagation();
     };
     detailAnchor?.addEventListener("click", preventNavigation, { capture: true, once: true });
     const r = clickTarget.getBoundingClientRect();
@@ -4448,9 +4472,128 @@
     return `${profile.natureText || "不限"} + ${targetPreview}`;
   }
 
+  function extractJsonBlock(text) {
+    const raw = String(text || "").trim().replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
+    const first = raw.indexOf("{");
+    const last = raw.lastIndexOf("}");
+    return first >= 0 && last > first ? raw.slice(first, last + 1) : raw;
+  }
+
+  function repairJsonText(text) {
+    return String(text || "")
+      .replace(/\u0000/g, "")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1");
+  }
+
+  function parseAiArrayField(text, fieldName) {
+    const raw = String(text || "");
+    const match = raw.match(new RegExp(`"${fieldName}"\\s*:\\s*\\[([\\s\\S]*?)\\]`, "i"));
+    if (!match) return [];
+    const items = [];
+    const itemRegex = /"((?:\\.|[^"\\])*)"/g;
+    let itemMatch;
+    while ((itemMatch = itemRegex.exec(match[1])) !== null) {
+      try {
+        items.push(JSON.parse(`"${itemMatch[1]}"`));
+      } catch (_) {
+        items.push(itemMatch[1]);
+      }
+    }
+    return items;
+  }
+
+  function extractJsonArrayField(text, fieldName) {
+    const raw = String(text || "");
+    const pattern = new RegExp(`"${fieldName}"\\s*:\\s*\\[([\\s\\S]*?)\\]`, "i");
+    const match = raw.match(pattern);
+    if (!match) return [];
+    const items = [];
+    const itemRegex = /"((?:\\.|[^"\\])*)"/g;
+    let itemMatch;
+    while ((itemMatch = itemRegex.exec(match[1])) !== null) {
+      try {
+        items.push(JSON.parse(`"${itemMatch[1]}"`));
+      } catch (_) {
+        items.push(itemMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\"));
+      }
+    }
+    return items;
+  }
+
+  function firstAiArrayField(source, fieldNames) {
+    for (const name of fieldNames) {
+      const direct = Array.isArray(source?.[name]) ? source[name] : [];
+      if (direct.length) return direct;
+    }
+    return [];
+  }
+
+  function aiArrayItemsToStrings(items) {
+    if (!Array.isArray(items)) return [];
+    const textKeys = ["word", "keyword", "text", "name", "title", "value", "label"];
+    return items
+      .map((item) => {
+        if (typeof item === "string" || typeof item === "number") return String(item);
+        if (!item || typeof item !== "object") return "";
+        for (const key of textKeys) {
+          if (typeof item[key] === "string" || typeof item[key] === "number") return String(item[key]);
+        }
+        return "";
+      })
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function findAiArrayField(source, fieldNames, seen = new Set()) {
+    if (!source || typeof source !== "object" || seen.has(source)) return [];
+    seen.add(source);
+    for (const name of fieldNames) {
+      const direct = aiArrayItemsToStrings(source[name]);
+      if (direct.length) return direct;
+    }
+    const children = Array.isArray(source) ? source : Object.values(source);
+    for (const child of children) {
+      const nested = findAiArrayField(child, fieldNames, seen);
+      if (nested.length) return nested;
+    }
+    return [];
+  }
+
+  function aiObjectShape(source, depth = 0, seen = new Set()) {
+    if (!source || typeof source !== "object" || seen.has(source) || depth > 2) return [];
+    seen.add(source);
+    const rows = [];
+    const entries = Array.isArray(source) ? source.slice(0, 3).map((value, index) => [String(index), value]) : Object.entries(source).slice(0, 12);
+    for (const [key, value] of entries) {
+      if (Array.isArray(value)) {
+        rows.push(`${key}:array(${value.length})`);
+      } else if (value && typeof value === "object") {
+        rows.push(`${key}:object`);
+        rows.push(...aiObjectShape(value, depth + 1, seen).map((item) => `${key}.${item}`));
+      } else {
+        rows.push(`${key}:${typeof value}`);
+      }
+    }
+    return rows.slice(0, 40);
+  }
+
+  function firstAiArrayTextField(text, fieldNames) {
+    for (const name of fieldNames) {
+      const items = parseAiArrayField(text, name);
+      if (items.length) return items;
+    }
+    return [];
+  }
+
   function parseAiJson(content) {
-    const raw = String(content || "").trim().replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
-    return JSON.parse(raw);
+    const raw = extractJsonBlock(content);
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return JSON.parse(repairJsonText(raw));
+    }
   }
 
   function aiConfigured() {
@@ -4660,11 +4803,24 @@
       }
     ];
     const content = await callDeepSeek(messages, 1100);
-    const parsed = parseAiJson(content);
-    const keywords = sanitizeAiWords(parsed.search_keywords, 30);
-    if (!keywords.length) throw new Error("DeepSeek 没有返回有效搜索词");
-    applyAiStrategy(parsed);
-    return { keywords, note: norm(parsed.note || parsed.manual_review_tip || "") };
+    let parsed;
+    let keywords = [];
+    try {
+      parsed = parseAiJson(content);
+      keywords = sanitizeAiWords(firstAiArrayField(parsed, ["search_keywords", "keywords", "search_terms", "queries", "titles", "job_titles", "搜索词", "搜索标题词", "关键词"]), 30);
+    } catch (_) {
+      keywords = sanitizeAiWords(firstAiArrayTextField(content, ["search_keywords", "keywords", "search_terms", "queries", "titles", "job_titles", "搜索词", "搜索标题词", "关键词"]), 30);
+    }
+    if (!keywords.length) {
+      debugLog("generate_keywords_no_keywords", {
+        parsedKeys: parsed && typeof parsed === "object" ? Object.keys(parsed).slice(0, 12) : [],
+        rawPreview: String(content || "").replace(/\s+/g, " ").trim().slice(0, 260)
+      });
+      throw new Error("DeepSeek 没有返回有效搜索词");
+    }
+    if (parsed) applyAiStrategy(parsed);
+    const note = parsed ? String(parsed.note || parsed.manual_review_tip || "").replace(/[\r\n]+/g, " ").replace(/["'`]/g, "").slice(0, 120) : "";
+    return { keywords, note };
   }
 
   async function generateRulesWithAi() {
@@ -4714,11 +4870,52 @@
       }
     ];
     const content = await callDeepSeek(messages, 700);
-    const parsed = parseAiJson(content);
-    const positive = sanitizePositiveWordsByNature(parsed.positive_keywords, RULE_SEED_LIMIT);
-    const negative = filterConflictingNegativeWords(sanitizeAiWords(parsed.negative_keywords, RULE_SEED_LIMIT));
-    if (!positive.length && !negative.length) throw new Error("DeepSeek 没有返回有效规则词");
-    return { positive, negative, note: norm(parsed.note || "") };
+    let parsed;
+    let positive = [];
+    let negative = [];
+    const positiveFieldNames = [
+      "positive_keywords",
+      "positive",
+      "include_keywords",
+      "bonus_words",
+      "positive_reference",
+      "must_have",
+      "recommended_keywords",
+      "include",
+      "match_keywords",
+      "加分词",
+      "正向词"
+    ];
+    const negativeFieldNames = [
+      "negative_keywords",
+      "negative",
+      "exclude_keywords",
+      "exclude_words",
+      "direct_exclude",
+      "hard_exclude",
+      "exclude",
+      "blocked_keywords",
+      "排除词",
+      "反向词"
+    ];
+    try {
+      parsed = parseAiJson(content);
+      positive = sanitizePositiveWordsByNature(findAiArrayField(parsed, positiveFieldNames), RULE_SEED_LIMIT);
+      negative = filterConflictingNegativeWords(sanitizeAiWords(findAiArrayField(parsed, negativeFieldNames), RULE_SEED_LIMIT));
+    } catch (_) {
+      positive = sanitizePositiveWordsByNature(firstAiArrayTextField(content, positiveFieldNames), RULE_SEED_LIMIT);
+      negative = filterConflictingNegativeWords(sanitizeAiWords(firstAiArrayTextField(content, negativeFieldNames), RULE_SEED_LIMIT));
+    }
+    if (!positive.length && !negative.length) {
+      debugLog("generate_rules_no_keywords", {
+        parsedKeys: parsed && typeof parsed === "object" ? Object.keys(parsed).slice(0, 12) : [],
+        parsedShape: aiObjectShape(parsed),
+        rawPreview: String(content || "").replace(/\s+/g, " ").trim().slice(0, 260)
+      });
+      throw new Error("DeepSeek 没有返回有效规则词");
+    }
+    const note = parsed ? String(parsed.note || "").replace(/[\r\n]+/g, " ").replace(/["'`]/g, "").slice(0, 120) : "";
+    return { positive, negative, note };
   }
 
   async function generateSearchKeywordsFromProfile() {
@@ -4958,7 +5155,20 @@
       clickHref: clickResult.href,
       beforeSignature: beforeDetail.signature
     });
-    const detailResult = await waitForJobDetail(job, beforeDetail.signature, Math.max(6000, jitter() + 1800));
+    let detailResult = await waitForJobDetail(job, beforeDetail.signature, Math.max(6000, jitter() + 1800));
+    if (!detailResult.ok) {
+      job.card.scrollIntoView({ block: "center", inline: "nearest" });
+      await sleep(350);
+      const retryClickResult = clickJobCard(job);
+      debugLog("job_detail_retry_click", {
+        title: job.title,
+        href: job.href,
+        clickMethod: retryClickResult.method,
+        clickHref: retryClickResult.href,
+        firstResult: detailLogPayload(detailResult)
+      });
+      detailResult = await waitForJobDetail(job, beforeDetail.signature, Math.max(4500, jitter() + 1500));
+    }
     if (!detailResult.ok) {
       debugLog("job_detail_not_confirmed", {
         title: job.title,
@@ -4968,14 +5178,16 @@
         matched: detailResult.matched,
         matchReason: detailResult.matchReason,
         hrefMatched: detailResult.hrefMatched,
-        selected: detailResult.selected
+        selected: detailResult.selected,
+        detail: detailLogPayload(detailResult)
       });
       throw new JobDetailNotConfirmedError("未确认右侧详情已切换到当前岗位，已暂停，避免使用旧详情判断", {
         beforeSignature: beforeDetail.signature,
         afterSignature: detailResult.signature,
         matchReason: detailResult.matchReason,
         hrefMatched: detailResult.hrefMatched,
-        selected: detailResult.selected
+        selected: detailResult.selected,
+        detail: detailLogPayload(detailResult)
       });
     }
     const detail = detailResult.text;

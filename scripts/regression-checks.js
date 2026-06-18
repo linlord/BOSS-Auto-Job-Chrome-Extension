@@ -100,6 +100,9 @@ assertEqual(filteredRows[0].indexOf("收藏状态"), filteredRows[1].indexOf("�
 
 const clickJobCardSource = extractFunction("clickJobCard");
 assertIncludes(clickJobCardSource, "preventDefault", "clickJobCard should prevent link navigation");
+if (clickJobCardSource.includes("stopPropagation")) {
+  failures.push("clickJobCard should not stop click propagation because the site may rely on bubbled clicks to switch the detail panel");
+}
 
 const startSource = extractFunction("start");
 assertIncludes(startSource, "start_blocked_missing_ai_key", "start should block scanning without a saved API key");
@@ -110,6 +113,14 @@ const processJobSource = extractFunction("processJob");
 assertIncludes(processJobSource, "judgeJobWithLlm", "processJob should require LLM judgement");
 assertIncludes(processJobSource, "llmResult.action", "processJob should use LLM action for the final decision");
 assertIncludes(processJobSource, "llmResult.score", "processJob should use LLM score for the final decision");
+assertIncludes(processJobSource, "job_detail_retry_click", "processJob should retry clicking before failing stale detail confirmation");
+assertIncludes(processJobSource, "detailLogPayload", "processJob should log compact detail diagnostics");
+const waitForJobDetailSource = extractFunction("waitForJobDetail");
+assertIncludes(source, "function hasStrongDetailMismatch", "detail confirmation should detect strong detail mismatches");
+assertIncludes(source, "function detailLogPayload", "detail confirmation should provide compact detail diagnostics");
+assertIncludes(waitForJobDetailSource, "titleConfirmed", "detail confirmation should accept clear title matches without hrefs");
+assertIncludes(waitForJobDetailSource, "!hasStrongDetailMismatch", "detail confirmation should keep code mismatch protection");
+assertIncludes(waitForJobDetailSource, "snapshot.text.length > 160", "detail confirmation should require enough detail text for title-only confirmation");
 
 const scanLoopSource = extractFunction("start");
 assertIncludes(scanLoopSource, "err instanceof LlmJudgementError", "scan loop should pause on LLM judgement failure");
@@ -166,7 +177,9 @@ assertIncludes(saveAiSettingsSource, "return false", "saveAiSettings should repo
 assertIncludes(saveAiSettingsSource, "return true", "saveAiSettings should report successful persistence");
 assertIncludes(source, "function maskApiKey", "code should provide a masked API key display");
 assertIncludes(source, "isMaskedApiKey", "code should distinguish masked display from a real typed key");
+assertIncludes(source, "isValidApiKeyForHeader", "code should reject API keys that cannot be used in headers");
 assertIncludes(saveAiSettingsSource, "maskApiKey(nextApiKey)", "saveAiSettings should display the saved key in masked form");
+assertIncludes(saveAiSettingsSource, "isValidApiKeyForHeader", "saveAiSettings should validate API key before storing it");
 const updateAiKeyStateSource = extractFunction("updateAiKeyState");
 assertIncludes(updateAiKeyStateSource, "!isMaskedApiKey", "masked key display should not be treated as a pending typed key");
 
@@ -177,6 +190,20 @@ assertIncludes(backgroundSource, "function extractResponseContent", "background 
 assertIncludes(backgroundSource, "choices?.[0]?.text", "background should support text completions response shape");
 assertIncludes(backgroundSource, "output_text", "background should support output_text response shape");
 assertIncludes(backgroundSource, "extractResponseContent(data)", "background should use normalized response extraction");
+assertIncludes(backgroundSource, "safeJsonParse", "background should parse response text without discarding diagnostics");
+assertIncludes(backgroundSource, "rawText", "background should preserve raw response text for diagnostics");
+assertIncludes(backgroundSource, "responseSnippet", "background should include response snippets for empty responses");
+assertIncludes(backgroundSource, "isValidHeaderValue", "background should validate Authorization header value before fetch");
+assertIncludes(backgroundSource, "isHtmlResponse", "background should reject HTML gateway responses");
+assertIncludes(backgroundSource, "/v1/chat/completions", "background should use the OpenAI-compatible chat completions path");
+assertIncludes(source, "function repairJsonText", "code should try to repair near-JSON AI responses");
+assertIncludes(source, "function extractJsonBlock", "code should extract JSON blocks from AI output");
+assertIncludes(source, "parseAiJson", "code should parse AI JSON through the tolerant helper");
+assertIncludes(source, "function firstAiArrayField", "code should accept alternate AI array field names");
+assertIncludes(source, "search_terms", "search keyword generation should accept search_terms fallback");
+assertIncludes(source, "job_titles", "search keyword generation should accept job_titles fallback");
+assertIncludes(source, "include_keywords", "rules generation should accept include_keywords fallback");
+assertIncludes(source, "exclude_keywords", "rules generation should accept exclude_keywords fallback");
 
 if (failures.length) {
   console.error(failures.join("\n"));
