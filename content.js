@@ -251,6 +251,21 @@
     });
   }
 
+  function maskApiKey(apiKey) {
+    const key = String(apiKey || "").trim();
+    if (!key) return "";
+    const headLength = Math.min(6, Math.max(3, Math.floor(key.length / 4)));
+    const tailLength = Math.min(6, Math.max(4, Math.floor(key.length / 5)));
+    if (key.length <= headLength + tailLength + 4) {
+      return `${key.slice(0, 2)}****${key.slice(-2)}`;
+    }
+    return `${key.slice(0, headLength)}${"*".repeat(Math.min(12, Math.max(6, key.length - headLength - tailLength)))}${key.slice(-tailLength)}`;
+  }
+
+  function isMaskedApiKey(value) {
+    return /\*{3,}/.test(String(value || ""));
+  }
+
   async function hydrateAiSettingsFromExtensionStorage() {
     const stored = await storageLocalGet([AI_STORAGE_KEY]);
     const next = stored?.[AI_STORAGE_KEY] || {};
@@ -282,36 +297,45 @@
     }
     const keyInput = document.querySelector("#baf-ai-key");
     if (keyInput) {
-      keyInput.value = "";
-      keyInput.placeholder = state.aiSettings.hasKey ? "已保存，留空不修改" : "sk-...";
+      const savedKey = String(next.apiKey || "").trim();
+      keyInput.value = savedKey ? maskApiKey(savedKey) : "";
+      keyInput.dataset.maskedKey = savedKey ? "1" : "";
+      keyInput.placeholder = state.aiSettings.hasKey ? "已保存，可直接替换" : "sk-...";
     }
     setPanelValue("#baf-ai-model", state.aiSettings.model || "deepseek-v4-flash");
+    updateAiKeyState();
     updatePanel();
   }
 
   async function saveAiSettings() {
     const currentStored = await storageLocalGet([AI_STORAGE_KEY]);
     const existing = currentStored?.[AI_STORAGE_KEY] || {};
-    const nextApiKey = String(state.aiSettings.apiKey || existing.apiKey || "").trim();
+    const pendingApiKey = isMaskedApiKey(state.aiSettings.apiKey) ? "" : String(state.aiSettings.apiKey || "").trim();
+    const nextApiKey = String(pendingApiKey || existing.apiKey || "").trim();
+    const nextModel = String(state.aiSettings.model || existing.model || "deepseek-v4-flash").trim() || "deepseek-v4-flash";
+    const saved = await storageLocalSet({
+      [AI_STORAGE_KEY]: {
+        provider: "deepseek",
+        apiKey: nextApiKey,
+        model: nextModel
+      }
+    });
+    if (!saved) return false;
     state.aiSettings = {
       provider: "deepseek",
       apiKey: "",
       hasKey: Boolean(nextApiKey),
-      model: String(state.aiSettings.model || "deepseek-v4-flash").trim() || "deepseek-v4-flash"
+      model: nextModel
     };
-    await storageLocalSet({
-      [AI_STORAGE_KEY]: {
-        provider: "deepseek",
-        apiKey: nextApiKey,
-        model: state.aiSettings.model
-      }
-    });
     localStorage.removeItem(AI_SETTINGS_KEY);
     const keyInput = document.querySelector("#baf-ai-key");
-    if (keyInput && keyInput.value) {
-      keyInput.value = "";
-      keyInput.placeholder = state.aiSettings.hasKey ? "已保存，留空不修改" : "sk-...";
+    if (keyInput && pendingApiKey && keyInput.value) {
+      keyInput.value = maskApiKey(nextApiKey);
+      keyInput.dataset.maskedKey = nextApiKey ? "1" : "";
+      keyInput.placeholder = state.aiSettings.hasKey ? "已保存，可直接替换" : "sk-...";
     }
+    updateAiKeyState();
+    return true;
   }
 
   function loadAiStrategy() {
@@ -2185,8 +2209,9 @@
     config.greeting.dailyLimit = safeNumber(document.querySelector("#baf-greet-limit")?.value, config.greeting.dailyLimit, 0);
     config.greeting.minScore = safeNumber(document.querySelector("#baf-greet-min-score")?.value, config.greeting.minScore || config.threshold, REVIEW_THRESHOLD + 1, 100);
     config.greeting.template = String(document.querySelector("#baf-greet-template")?.value || config.greeting.template || "").trim();
-    const keyInputValue = String(document.querySelector("#baf-ai-key")?.value || "").trim();
-    if (keyInputValue) state.aiSettings.apiKey = keyInputValue;
+    const keyInputEl = document.querySelector("#baf-ai-key");
+    const keyInputValue = String(keyInputEl?.value || "").trim();
+    if (keyInputValue && !isMaskedApiKey(keyInputValue)) state.aiSettings.apiKey = keyInputValue;
     state.aiSettings.model = String(document.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "deepseek-v4-flash").trim();
     state.settings = panelSettingsSnapshot();
     saveSettings(state.settings);
@@ -3152,6 +3177,10 @@
           <strong>BOSS-Auto-Job-Extension <span class="baf-version">v2.0.6</span></strong>
           <span>职位列表</span>
         </div>
+        <div id="baf-run-state" class="baf-run-state baf-state-idle" title="灰灯｜未启动">
+          <span class="baf-run-dot" aria-hidden="true"></span>
+          <span id="baf-run-text" class="baf-run-text">灰灯｜未启动</span>
+        </div>
         <button id="baf-toggle" type="button">收起</button>
       </div>
       <div class="baf-status-card">
@@ -3274,6 +3303,8 @@
               <label>模型</label>
               <input id="baf-ai-model" class="baf-ai-model" value="${escapeAttr(state.aiSettings.model || "deepseek-v4-flash")}" />
               <button id="baf-show-key" type="button" class="baf-mini-primary">显示 Key</button>
+              <button id="baf-save-key" type="button" class="baf-mini-primary">保存 Key</button>
+              <span id="baf-ai-key-state" class="baf-ai-key-state">${state.aiSettings.hasKey ? "已保存" : "未保存"}</span>
             </div>
             <div class="baf-hint">API 地址固定；Key 保存在扩展私有存储中，AI 请求由后台脚本读取 Key 并添加 Authorization。</div>
           </div>
@@ -3421,6 +3452,90 @@
       #boss-ai-autofav-panel .baf-title-main strong {
         font-size: 14px;
         line-height: 1.2;
+      }
+      #boss-ai-autofav-panel .baf-run-state {
+        flex: 1 1 auto;
+        min-width: 138px;
+        max-width: 190px;
+        justify-self: center;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.32);
+        background: rgba(255,255,255,.12);
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      #boss-ai-autofav-panel .baf-run-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #94a3b8;
+        box-shadow: 0 0 0 3px rgba(148, 163, 184, .18);
+        flex: 0 0 auto;
+      }
+      #boss-ai-autofav-panel .baf-state-idle .baf-run-dot {
+        background: #94a3b8;
+        box-shadow: 0 0 0 3px rgba(148, 163, 184, .22);
+      }
+      #boss-ai-autofav-panel .baf-state-running .baf-run-dot {
+        background: #22c55e;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, .25), 0 0 12px rgba(34, 197, 94, .75);
+      }
+      #boss-ai-autofav-panel .baf-state-error .baf-run-dot {
+        background: #ef4444;
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, .25), 0 0 12px rgba(239, 68, 68, .65);
+      }
+      #boss-ai-autofav-panel .baf-state-complete .baf-run-dot {
+        background: #facc15;
+        box-shadow: 0 0 0 3px rgba(250, 204, 21, .25), 0 0 12px rgba(250, 204, 21, .65);
+      }
+      .baf-missing-key-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        background: rgba(15, 23, 42, .42);
+      }
+      .baf-missing-key-dialog {
+        width: min(360px, calc(100vw - 36px));
+        border-radius: 10px;
+        border: 1px solid #fecaca;
+        background: #ffffff;
+        box-shadow: 0 22px 60px rgba(15, 23, 42, .28);
+        padding: 16px;
+        color: #111827;
+      }
+      .baf-missing-key-title {
+        font-size: 15px;
+        font-weight: 800;
+        color: #b91c1c;
+        margin-bottom: 8px;
+      }
+      .baf-missing-key-text {
+        font-size: 13px;
+        line-height: 1.55;
+        color: #374151;
+        margin-bottom: 14px;
+      }
+      #baf-missing-key-close {
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 12px;
+        background: #dc2626;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 800;
+        cursor: pointer;
       }
       #boss-ai-autofav-panel .baf-version {
         font-size: 12px;
@@ -3638,6 +3753,18 @@
       }
       #boss-ai-autofav-panel input.baf-ai-model {
         width: 135px;
+      }
+      #boss-ai-autofav-panel .baf-ai-key-state {
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 700;
+        min-width: 46px;
+      }
+      #boss-ai-autofav-panel .baf-ai-key-state-ok {
+        color: #15803d;
+      }
+      #boss-ai-autofav-panel .baf-ai-key-state-pending {
+        color: #b45309;
       }
       #boss-ai-autofav-panel .baf-boundary {
         background: #f8fafc;
@@ -4015,10 +4142,12 @@
     }
     panel.addEventListener("input", event => {
       if (event.target.closest(".baf-feedback")) return;
+      if (event.target.matches("#baf-ai-key")) return;
       schedulePanelSettingsSave();
     });
     panel.addEventListener("change", event => {
       if (event.target.closest(".baf-feedback")) return;
+      if (event.target.matches("#baf-ai-key")) return;
       schedulePanelSettingsSave();
     });
 
@@ -4043,6 +4172,15 @@
       });
       readPanelConfig();
     };
+    const ensureAiKeyBeforeAction = actionText => {
+      readPanelConfig();
+      if (aiConfigured()) return true;
+      alertMissingAiKey(actionText);
+      const message = `未保存第三方大模型key，请先在高级规则中填写并保存 Key，再${actionText}。`;
+      updateStatus(statusSummary(message));
+      setNote("#baf-rules-note", message);
+      return false;
+    };
     panel.querySelector("#baf-mode-current")?.addEventListener("click", () => setScanMode("current"));
     panel.querySelector("#baf-mode-task")?.addEventListener("click", () => setScanMode("task"));
     panel.querySelectorAll(".baf-threshold-mode").forEach(button => {
@@ -4064,18 +4202,59 @@
       input.type = visibleKey ? "password" : "text";
       panel.querySelector("#baf-show-key").textContent = visibleKey ? "显示 Key" : "隐藏 Key";
     });
-    panel.querySelector("#baf-ai-key")?.addEventListener("change", async () => {
-      state.aiSettings.apiKey = String(panel.querySelector("#baf-ai-key")?.value || "").trim();
+    const saveAiSettingsFromPanel = async (successMessage = "AI Key 已保存到扩展私有存储。") => {
+      const typedKey = String(panel.querySelector("#baf-ai-key")?.value || "").trim();
+      const typedRealKey = isMaskedApiKey(typedKey) ? "" : typedKey;
+      if (!typedRealKey && !state.aiSettings.hasKey) {
+        updateAiKeyState("未保存");
+        updateStatus(statusSummary("请先填写第三方大模型 Key，再点击保存。"));
+        window.alert("请先填写第三方大模型 Key，再点击保存。");
+        return false;
+      }
+      state.aiSettings.apiKey = typedRealKey;
       state.aiSettings.model = String(panel.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "deepseek-v4-flash").trim();
-      await saveAiSettings();
-      updateStatus(statusSummary("AI Key 已保存到扩展私有存储。"));
+      const saved = await saveAiSettings();
+      if (!saved) {
+        updateAiKeyState("保存失败");
+        updateStatus(statusSummary("AI Key 保存失败，请检查扩展存储权限后重试。"));
+        window.alert("AI Key 保存失败，请检查扩展存储权限后重试。");
+        return false;
+      }
+      updateAiKeyState(typedRealKey ? "已保存" : undefined);
+      updateStatus(statusSummary(successMessage));
+      return true;
+    };
+    panel.querySelector("#baf-ai-key")?.addEventListener("input", () => {
+      panel.querySelector("#baf-ai-key")?.removeAttribute("data-masked-key");
+      updateAiKeyState();
+    });
+    panel.querySelector("#baf-ai-key")?.addEventListener("keydown", async event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      await saveAiSettingsFromPanel();
+    });
+    panel.querySelector("#baf-ai-key")?.addEventListener("change", async () => {
+      const currentKeyValue = String(panel.querySelector("#baf-ai-key")?.value || "").trim();
+      if (!currentKeyValue || isMaskedApiKey(currentKeyValue)) {
+        updateAiKeyState();
+        return;
+      }
+      await saveAiSettingsFromPanel();
+    });
+    panel.querySelector("#baf-save-key")?.addEventListener("click", async () => {
+      await saveAiSettingsFromPanel();
     });
     panel.querySelector("#baf-ai-model")?.addEventListener("change", async () => {
       state.aiSettings.model = String(panel.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "deepseek-v4-flash").trim();
-      await saveAiSettings();
+      const saved = await saveAiSettings();
+      if (!saved) {
+        updateStatus(statusSummary("AI 模型设置保存失败，请稍后重试。"));
+        return;
+      }
       updateStatus(statusSummary("AI 模型设置已保存。"));
     });
     panel.querySelector("#baf-generate-profile")?.addEventListener("click", async () => {
+      if (!ensureAiKeyBeforeAction("生成搜索词")) return;
       readPanelConfig();
       const issue = targetDirectionIssue();
       if (issue === "未填写目标方向") {
@@ -4084,7 +4263,8 @@
         return;
       }
       setThresholdMode(60);
-      await generateSearchKeywordsFromProfile();
+      const generated = await generateSearchKeywordsFromProfile();
+      if (!generated) return;
       setScanMode("task");
       readPanelConfig();
       if (issue === "目标方向太泛") {
@@ -4095,6 +4275,7 @@
     setScanMode((state.campaign?.active || state.campaign?.paused) ? "task" : "current");
     setThresholdMode(config.threshold);
     panel.querySelector("#baf-start").addEventListener("click", () => {
+      if (!ensureAiKeyBeforeAction("启动或继续扫描")) return;
       const mode = panel.dataset.scanMode || "current";
       const resumePaused = Boolean(state.campaign?.paused && state.pausedByUserThisSession);
       debugLog("start_click", { mode, resumePaused });
@@ -4214,6 +4395,7 @@
     });
     panel.querySelector("#baf-apply-feedback").addEventListener("click", applyFeedbackWords);
     panel.querySelector("#baf-generate-rules").addEventListener("click", async () => {
+      if (!ensureAiKeyBeforeAction("生成加分词/排除词")) return;
       await generateRulesFromPanelKeywords();
     });
     updateConfigSummary();
@@ -4223,6 +4405,7 @@
     const el = document.querySelector("#baf-status");
     if (el) el.textContent = text;
     updateTodayProgress();
+    updateRunStateIndicator();
   }
 
   function mergeTextareaWords(selector, words) {
@@ -4237,6 +4420,16 @@
     if (!el) return;
     el.textContent = text || "";
     el.style.display = text ? "block" : "none";
+  }
+
+  function updateAiKeyState(text) {
+    const el = document.querySelector("#baf-ai-key-state");
+    if (!el) return;
+    const keyValue = String(document.querySelector("#baf-ai-key")?.value || "").trim();
+    const hasTypedRealKey = Boolean(keyValue && !isMaskedApiKey(keyValue));
+    el.textContent = text || (hasTypedRealKey ? "待保存" : state.aiSettings.hasKey ? "已保存" : "未保存");
+    el.classList.toggle("baf-ai-key-state-ok", state.aiSettings.hasKey && !hasTypedRealKey && !text);
+    el.classList.toggle("baf-ai-key-state-pending", hasTypedRealKey || Boolean(text));
   }
 
   function resetRulesForNewProfile() {
@@ -4262,6 +4455,27 @@
 
   function aiConfigured() {
     return Boolean(String(document.querySelector("#baf-ai-key")?.value || "").trim() || state.aiSettings.hasKey);
+  }
+
+  function alertMissingAiKey(actionText) {
+    const message = `请先在「高级规则」中填入第三方大模型key，再${actionText}。`;
+    const existing = document.querySelector("#baf-missing-key-modal");
+    if (existing) existing.remove();
+    const modal = document.createElement("div");
+    modal.id = "baf-missing-key-modal";
+    modal.className = "baf-missing-key-modal";
+    modal.innerHTML = `
+      <div class="baf-missing-key-dialog" role="alertdialog" aria-modal="true" aria-labelledby="baf-missing-key-title">
+        <div id="baf-missing-key-title" class="baf-missing-key-title">需要第三方大模型key</div>
+        <div class="baf-missing-key-text">${escapeHtml(message)}</div>
+        <button id="baf-missing-key-close" type="button">知道了</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#baf-missing-key-close")?.addEventListener("click", () => modal.remove(), { once: true });
+    modal.addEventListener("click", event => {
+      if (event.target === modal) modal.remove();
+    });
   }
 
   async function callDeepSeek(messages, maxTokens = 1400) {
@@ -4508,38 +4722,39 @@
   }
 
   async function generateSearchKeywordsFromProfile() {
-    let generated = [];
-    let aiNote = "";
-    let aiUsed = false;
     resetRulesForNewProfile();
-    if (aiConfigured()) {
-      try {
-        updateStatus(statusSummary("DeepSeek 正在生成搜索词..."));
-        const aiResult = await generateSearchKeywordsWithAi();
-        generated = [...new Set([...aiResult.keywords, ...searchKeywordsFromProfile()])].slice(0, 18);
-        aiNote = aiResult.note;
-        aiUsed = true;
-      } catch (error) {
-        setNote("#baf-keyword-note", `DeepSeek 生成失败，已改用本地规则：${String(error?.message || error)}`);
-      }
-    }
-    if (!generated.length) generated = searchKeywordsFromProfile();
-    if (!generated.length) {
-      const issue = targetDirectionIssue();
-      setNote("#baf-keyword-note", issue === "目标方向太泛"
-        ? "目标方向太泛，当前会按原词搜索并降低自动收藏倾向。建议后续补成具体场景。"
-        : "没有生成搜索词。先填写岗位性质和目标方向，比如：销售 + AI客服，运营 + 跨境电商。");
+    if (!aiConfigured()) {
+      const message = "未保存第三方大模型key，无法生成搜索词。请先在高级规则中填写并保存 Key。";
+      alertMissingAiKey("生成搜索词");
+      setNote("#baf-keyword-note", message);
+      updateStatus(statusSummary(message));
+      debugLog("generate_keywords_blocked_missing_ai_key");
       return false;
     }
-    setPanelValue("#baf-keywords", generated.join("\n"));
-    setPanelChecked("#baf-expand-keywords", true);
-    readPanelConfig();
-    setNote(
-      "#baf-keyword-note",
-      `${aiUsed ? "已用 DeepSeek" : "已按本地规则"}按「${profileNotePrefix()}」生成 ${generated.length} 个搜索词。\n${aiNote ? `${aiNote}\n` : ""}重要：先人工确认这一框，删掉不想看的词，补上你知道的岗位叫法；确认后再生成加分词/排除词。第一次每词先跑 100-200。`
-    );
-    updateStatus(statusSummary(`已生成搜索词：${generated.length} 个。`));
-    return true;
+    try {
+      updateStatus(statusSummary("DeepSeek 正在生成搜索词..."));
+      const aiResult = await generateSearchKeywordsWithAi();
+      const generated = [...new Set(aiResult.keywords)].slice(0, 18);
+      const aiNote = aiResult.note;
+      if (!generated.length) {
+        throw new Error("DeepSeek 没有返回有效搜索词");
+      }
+      setPanelValue("#baf-keywords", generated.join("\n"));
+      setPanelChecked("#baf-expand-keywords", true);
+      readPanelConfig();
+      setNote(
+        "#baf-keyword-note",
+        `已用 DeepSeek 按「${profileNotePrefix()}」生成 ${generated.length} 个搜索词。\n${aiNote ? `${aiNote}\n` : ""}重要：先人工确认这一框，删掉不想看的词，补上你知道的岗位叫法；确认后再生成加分词/排除词。第一次每词先跑 100-200。`
+      );
+      updateStatus(statusSummary(`DeepSeek 已生成搜索词：${generated.length} 个。`));
+      return true;
+    } catch (error) {
+      const message = `DeepSeek 生成搜索词失败：${String(error?.message || error)}`;
+      setNote("#baf-keyword-note", `${message}\n不会改用本地规则，请检查 API Key、模型或网络后重试。`);
+      updateStatus(statusSummary("DeepSeek 生成搜索词失败，未使用本地规则兜底。"));
+      debugLog("generate_keywords_llm_failed", { error: String(error?.message || error) });
+      return false;
+    }
   }
 
   async function generateRulesFromPanelKeywords(options = {}) {
@@ -4553,27 +4768,34 @@
       updateStatus(statusSummary("缺少搜索词，暂时不能生成规则。"));
       return false;
     }
+    if (!aiConfigured()) {
+      const message = "未保存第三方大模型key，无法生成加分词/排除词。请先在高级规则中填写并保存 Key。";
+      alertMissingAiKey("生成加分词/排除词");
+      setNote("#baf-rules-note", message);
+      updateStatus(statusSummary(message));
+      debugLog("generate_rules_blocked_missing_ai_key");
+      return false;
+    }
     let generated = null;
     let aiNote = "";
-    let aiUsed = false;
-    if (!options.onlyIfEmpty && aiConfigured()) {
-      try {
-        updateStatus(statusSummary("DeepSeek 正在生成加分词/排除词..."));
-        const aiResult = await generateRulesWithAi();
-        generated = { positive: aiResult.positive, negative: aiResult.negative };
-        aiNote = aiResult.note;
-        aiUsed = true;
-      } catch (error) {
-        setNote("#baf-rules-note", `DeepSeek 生成失败，已改用本地规则：${String(error?.message || error)}`);
-      }
+    try {
+      updateStatus(statusSummary("DeepSeek 正在生成加分词/排除词..."));
+      const aiResult = await generateRulesWithAi();
+      generated = { positive: aiResult.positive, negative: aiResult.negative };
+      aiNote = aiResult.note;
+    } catch (error) {
+      const message = `DeepSeek 生成加分词/排除词失败：${String(error?.message || error)}`;
+      setNote("#baf-rules-note", `${message}\n不会改用本地规则，请检查 API Key、模型或网络后重试。`);
+      updateStatus(statusSummary("DeepSeek 生成加分词/排除词失败，未使用本地规则兜底。"));
+      debugLog("generate_rules_llm_failed", { error: String(error?.message || error) });
+      return false;
     }
-    if (!generated) generated = ruleWordsFromKeywords(keywords);
     mergeTextareaWords("#baf-positive", generated.positive);
     mergeTextareaWords("#baf-negative", generated.negative);
     readPanelConfig();
     setNote(
       "#baf-rules-note",
-      `${aiUsed ? "已用 DeepSeek" : "已按本地规则"}按「${profileNotePrefix()}」生成少量种子词：加分 ${generated.positive.length} 个、排除 ${generated.negative.length} 个。\n${aiNote ? `${aiNote}\n` : ""}建议手动看一眼：加分词只保留最贴近目标的岗位叫法；排除词只放明显不想看的岗位类型。`
+      `已用 DeepSeek 按「${profileNotePrefix()}」生成少量种子词：加分 ${generated.positive.length} 个、排除 ${generated.negative.length} 个。\n${aiNote ? `${aiNote}\n` : ""}建议手动看一眼：加分词只保留最贴近目标的岗位叫法；排除词只放明显不想看的岗位类型。`
     );
     if (!options.silent) {
       updateStatus(statusSummary(`已生成加分词/排除词：加分 ${generated.positive.length} 个，排除 ${generated.negative.length} 个。`));
@@ -4594,6 +4816,32 @@
     const panel = document.querySelector("#baf-feedback");
     if (panel) panel.style.display = "block";
     updateStatus(statusSummary(message));
+  }
+
+  function runStateInfo() {
+    const latest = state.logs[0] || null;
+    const hasError = latest?.action === "error" || /failed|error/.test(String(state.campaign?.phase || ""));
+    if (state.running) {
+      return { code: "running", text: "绿灯｜运行中" };
+    }
+    if (state.campaign?.paused || hasError) {
+      return { code: "error", text: "红灯｜暂停/报错" };
+    }
+    if (state.campaign && !state.campaign.active && !state.campaign.paused && Number(state.campaign.index || 0) >= Number((state.campaign.keywords || []).length || 0)) {
+      return { code: "complete", text: "黄灯｜已完成" };
+    }
+    return { code: "idle", text: "灰灯｜未启动" };
+  }
+
+  function updateRunStateIndicator() {
+    const indicator = document.querySelector("#baf-run-state");
+    const text = document.querySelector("#baf-run-text");
+    if (!indicator || !text) return;
+    const info = runStateInfo();
+    indicator.classList.remove("baf-state-idle", "baf-state-running", "baf-state-error", "baf-state-complete");
+    indicator.classList.add(`baf-state-${info.code}`);
+    text.textContent = info.text;
+    indicator.title = info.text;
   }
 
   function applyFeedbackWords() {
@@ -4623,6 +4871,7 @@
 
   function updatePanel() {
     updateTodayProgress();
+    updateRunStateIndicator();
     const setText = (selector, text) => {
       const el = document.querySelector(selector);
       if (el) el.textContent = text;
@@ -4825,7 +5074,8 @@
     saveDailyStats();
     debugLog("start_called", { options });
     if (!aiConfigured()) {
-      const message = "未保存 API Key，无法启动扫描。请先在高级规则 / AI Key 中保存 Key；岗位判断必须经过 LLM。";
+      const message = "未保存第三方大模型key，无法启动扫描。请先在高级规则中填写并保存 Key；岗位判断必须经过 LLM。";
+      alertMissingAiKey("启动或继续扫描");
       updateStatus(statusSummary(message));
       setNote("#baf-rules-note", message);
       debugLog("start_blocked_missing_ai_key");

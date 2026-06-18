@@ -1,3 +1,26 @@
+function extractResponseContent(data) {
+  const direct = data?.choices?.[0]?.message?.content
+    || data?.choices?.[0]?.text
+    || data?.output_text
+    || data?.content
+    || data?.message?.content;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const outputParts = Array.isArray(data?.output) ? data.output : [];
+  const outputText = outputParts
+    .flatMap(item => Array.isArray(item?.content) ? item.content : [])
+    .map(part => part?.text || part?.content || "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return outputText;
+}
+
+function responseShape(data) {
+  if (!data || typeof data !== "object") return typeof data;
+  return Object.keys(data).slice(0, 8).join(", ") || "empty object";
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.type !== "deepseek-chat") return false;
 
@@ -28,8 +51,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         throw new Error(detail);
       }
 
-      const content = data?.choices?.[0]?.message?.content || "";
-      if (!content) throw new Error("接口返回为空");
+      const content = extractResponseContent(data);
+      if (!content) throw new Error(`接口返回为空，返回字段：${responseShape(data)}`);
       sendResponse({ ok: true, content, usage: data?.usage || null });
     } catch (error) {
       sendResponse({ ok: false, error: String(error?.message || error) });
