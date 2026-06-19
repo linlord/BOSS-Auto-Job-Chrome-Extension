@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   if (window.__bossAiAutoFavLoaded) return;
   window.__bossAiAutoFavLoaded = true;
 
@@ -1343,8 +1343,8 @@
     if (/售前|解决方案|方案|顾问|poc|pre[-\s]?sales/i.test(source)) return "presales";
     if (/产品经理|产品运营|产品负责人|产品总监|产品leader|产品设计|pm/i.test(source)) return "product";
     if (/运营|增长|用户|商家运营|平台运营|渠道运营|活动/.test(source)) return "operations";
-    if (/技术|工程师|开发|研发|算法|前端|后端|测试|运维|架构|java|python|\bai\b/.test(source)) return "tech";
     if (/销售|bd|商务|大客户|客户经理|客户代表|ka|渠道|拓展/.test(source)) return "sales";
+    if (/技术|工程师|开发|研发|算法|前端|后端|测试|运维|架构|java|python|\bai\b/.test(source)) return "tech";
     return "any";
   }
 
@@ -2539,8 +2539,9 @@
     };
   }
 
-  function configSummaryText() {
-    const aiStrategy = activeAiStrategy();
+  function configSummaryText(options = {}) {
+    const { includeAiStrategy = true } = options;
+    const aiStrategy = includeAiStrategy ? activeAiStrategy() : null;
     if (aiStrategy?.summaryText) return aiStrategy.summaryText;
     const snapshot = configSchemaSnapshot();
     const strategy = snapshot.screeningStrategy;
@@ -4631,7 +4632,7 @@
 
   function firstAiArrayField(source, fieldNames) {
     for (const name of fieldNames) {
-      const direct = Array.isArray(source?.[name]) ? source[name] : [];
+      const direct = aiArrayItemsToStrings(source?.[name]);
       if (direct.length) return direct;
     }
     return [];
@@ -4692,6 +4693,50 @@
       if (items.length) return items;
     }
     return [];
+  }
+
+  function parseMaybeJsonText(text) {
+    const raw = norm(String(text || ""));
+    if (!raw) return null;
+    try {
+      return parseAiJson(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function extractKeywordLines(text) {
+    return String(text || "")
+      .split(/\r?\n+/)
+      .map(line => norm(line.replace(/^[-*•\d.)\s]+/, "")))
+      .filter(Boolean);
+  }
+
+  function sanitizeSearchKeywords(words, limit = 30) {
+    const bannedExact = new Set(["ai", "互联网", "软件", "企业服务", "销售", "测试", "产品", "技术", "运营"]);
+    return [...new Set((words || [])
+      .map(word => String(word || ""))
+      .map(word => word.replace(/^[\s"'`[{(]+/, "").replace(/[\s"'`,.;:!?，。；：！？\]})]+$/g, ""))
+      .map(word => norm(word))
+      .filter(word => word && word.length <= 24)
+      .filter(word => !/^[{}\[\]()]+$/.test(word))
+      .filter(word => !/[。！？：:]/.test(word))
+      .filter(word => !/[{}[\]"]/g.test(word))
+      .filter(word => !/\b(normalizedNature|targetDirections|analysis|config_summary|screening_strategy|object|model|choices|content)\b/i.test(word))
+      .filter(word => !bannedExact.has(word.toLowerCase()))
+      .filter(word => !/^(岗位|职位|关键词|搜索词|搜索标题词)$/i.test(word)))]
+      .slice(0, limit);
+  }
+
+  function extractAiKeywordCandidates(parsed, content, fieldNames) {
+    const fromObject = sanitizeSearchKeywords(findAiArrayField(parsed, fieldNames), 30);
+    if (fromObject.length) return fromObject;
+    const maybeJson = parseMaybeJsonText(content);
+    const fromJsonText = sanitizeSearchKeywords(findAiArrayField(maybeJson, fieldNames), 30);
+    if (fromJsonText.length) return fromJsonText;
+    const fromFieldText = sanitizeSearchKeywords(firstAiArrayTextField(content, fieldNames), 30);
+    if (fromFieldText.length) return fromFieldText;
+    return sanitizeSearchKeywords(extractKeywordLines(content), 30);
   }
 
   function parseAiJson(content) {
@@ -4756,24 +4801,28 @@
     });
   }
 
-  function aiProfilePayload() {
+  function aiProfilePayload(options = {}) {
+    const { mode = "default", useLiveConfigSummary = false } = options;
     const profile = keywordProfileFromPanel();
     const currentKeywords = parseKeywordList(document.querySelector("#baf-keywords")?.value || "");
     const screeningStrategy = screeningStrategySnapshot();
-    return {
+    const payload = {
       jobNature: profile.natureText || config.filters.jobNature || "不限",
       normalizedNature: profile.nature,
       targetDirections: profile.targets,
       screeningStrategy,
-      configSummary: configSummaryText(),
+      configSummary: useLiveConfigSummary ? configSummaryText({ includeAiStrategy: false }) : configSummaryText(),
       salary: {
         minK: document.querySelector("#baf-salary-min")?.value || "",
         maxK: document.querySelector("#baf-salary-max")?.value || ""
-      },
-      currentSearchKeywords: currentKeywords,
-      likedWords: state.userPrefs.likedWords || [],
-      dislikedWords: state.userPrefs.dislikedWords || []
+      }
     };
+    if (mode !== "search_keywords") {
+      payload.currentSearchKeywords = currentKeywords;
+      payload.likedWords = state.userPrefs.likedWords || [];
+      payload.dislikedWords = state.userPrefs.dislikedWords || [];
+    }
+    return payload;
   }
 
   function sanitizeAiWords(words, limit = 40) {
@@ -4857,23 +4906,20 @@
     updateConfigSummary();
   }
 
-  async function generateSearchKeywordsWithAi() {
-    if (!aiConfigured()) return null;
-    const payload = aiProfilePayload();
-    const messages = [
+  function buildSearchKeywordMessages(payload) {
+    return [
       {
         role: "system",
         content: [
           "你是招聘网站搜索标题词专家，服务对象是普通求职者。",
-          "本任务只负责生成“搜索标题词”，目标是覆盖 HR 在 BOSS 直聘里真实会写的岗位标题和相邻叫法，不负责生成正向词/反向词。",
-          "只输出严格 JSON，不要解释。",
-          "必须先在 JSON 的 analysis 字段里做简短判断：岗位性质是什么、目标方向对应哪些产品/行业/场景、HR 可能怎么写标题、哪些相邻标题值得搜。",
-          "搜索词规则：数量 12-18 个；必须是可直接放进 BOSS 搜索框的岗位标题关键词；按优先级排序；不要只机械拼“目标方向 + 岗位性质”。",
-          "搜索词要覆盖 3 类：1. 用户直写目标词 + 岗位性质；2. HR 常见同义标题；3. 目标方向的相邻产品或行业叫法。",
-          "例子：岗位性质=销售，目标方向=ai应用时，除 ai应用销售 外，还应联想到 Agent销售、智能体销售、AI软件销售、AI SaaS销售、AI解决方案销售、AI产品销售、大模型销售、AIGC销售、智能客服销售、AI知识库销售。",
-          "例子：岗位性质=运营，目标方向=ai教育时，可生成 ai教育运营、ai教育客户运营、ai教育用户运营、ai教育增长运营、ai教育平台运营、ai教育产品运营等，但不要生成 AI应用销售。",
-          "禁止输出 ai、互联网、软件、企业服务、运营、销售 这类过泛单词；禁止输出纯技能词、行业概念词或不能当岗位标题搜索的词。",
-          "必须同时生成 config_summary 和 screening_strategy，但其中正向/反向只是摘要参考：正向参考最多 5 个评分锚点，直接排除最多 5 个明显不想看的岗位类型。",
+          "本任务只负责生成搜索标题词，目标是覆盖 HR 在 BOSS 直聘里真实会写的岗位标题和相邻叫法，不负责生成正向词或反向词。",
+          "必须严格根据 normalizedNature 和 targetDirections 输出具体、精确、可直接搜索的岗位名称。",
+          "搜索词必须是精确岗位名称，能单独直接放进 BOSS 搜索框；不要输出分析过程、字段名、解释语句、JSON 说明或推理碎片。",
+          "禁止把 normalizedNature、targetDirections、analysis、config_summary、screening_strategy、object、model、choices、content 这类文本放进搜索词。",
+          "禁止输出 AI、互联网、软件、企业服务、销售、测试、产品、技术、运营 这类过泛单词；必须输出更具体的岗位名称。",
+          "如果当前 input 里没有某个岗位性质或目标方向，就不要擅自生成该方向的岗位名称。",
+          "只输出严格 JSON。不要输出 analysis 字段，不要输出思考过程。",
+          "必须同时生成 search_keywords、config_summary、screening_strategy；search_keywords 只能是 12-18 个具体岗位名称组成的字符串数组，数组元素里不能出现句子和解释。",
           "收藏策略：favorite_score 使用 input.screeningStrategy.scoring.favoriteScore；review_score 固定 50；50 分以下跳过。"
         ].join("\n")
       },
@@ -4882,13 +4928,6 @@
         content: JSON.stringify({
           input: payload,
           output_format: {
-            analysis: {
-              role_nature: "岗位性质分析",
-              target_domain: "目标方向分析",
-              hr_title_logic: "HR 可能使用哪些岗位标题",
-              adjacent_title_logic: "哪些相邻产品或标题值得一起搜索",
-              not_rule_words: "说明这些不是正向词/反向词，只是搜索标题词"
-            },
             search_keywords: ["搜索标题词1", "搜索标题词2", "至少12个，最多18个"],
             config_summary: "面板展示用配置摘要，按我要找、必须满足、可以接受、待复核、直接排除、收藏策略、加分参考、安全限制、使用边界分行输出",
             screening_strategy: {
@@ -4910,18 +4949,26 @@
         })
       }
     ];
+  }
+
+  async function generateSearchKeywordsWithAi() {
+    if (!aiConfigured()) return null;
+    readPanelConfig();
+    const payload = aiProfilePayload({ mode: "search_keywords", useLiveConfigSummary: true });
+    const messages = buildSearchKeywordMessages(payload);
     const content = await callDeepSeek(messages, 1100);
     let parsed;
     let keywords = [];
     try {
       parsed = parseAiJson(content);
-      keywords = sanitizeAiWords(firstAiArrayField(parsed, ["search_keywords", "keywords", "search_terms", "queries", "titles", "job_titles", "搜索词", "搜索标题词", "关键词"]), 30);
+      keywords = extractAiKeywordCandidates(parsed, content, ["search_keywords", "keywords", "search_terms", "queries", "titles", "job_titles", "搜索词", "搜索标题词", "关键词"]);
     } catch (_) {
-      keywords = sanitizeAiWords(firstAiArrayTextField(content, ["search_keywords", "keywords", "search_terms", "queries", "titles", "job_titles", "搜索词", "搜索标题词", "关键词"]), 30);
+      keywords = extractAiKeywordCandidates(null, content, ["search_keywords", "keywords", "search_terms", "queries", "titles", "job_titles", "搜索词", "搜索标题词", "关键词"]);
     }
     if (!keywords.length) {
       debugLog("generate_keywords_no_keywords", {
         parsedKeys: parsed && typeof parsed === "object" ? Object.keys(parsed).slice(0, 12) : [],
+        parsedShape: aiObjectShape(parsed),
         rawPreview: String(content || "").replace(/\s+/g, " ").trim().slice(0, 260)
       });
       throw new Error("DeepSeek 没有返回有效搜索词");
@@ -4933,7 +4980,8 @@
 
   async function generateRulesWithAi() {
     if (!aiConfigured()) return null;
-    const profile = aiProfilePayload();
+    readPanelConfig();
+    const profile = aiProfilePayload({ useLiveConfigSummary: true });
     const keywords = parseKeywordList(document.querySelector("#baf-keywords")?.value || "");
     const messages = [
       {

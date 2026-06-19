@@ -1,4 +1,4 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const vm = require("vm");
 
 const source = fs.readFileSync("content.js", "utf8");
@@ -215,6 +215,9 @@ assertIncludes(source, "function runStateInfo", "code should compute run-state i
 assertIncludes(source, "updateRunStateIndicator", "code should update run-state indicator");
 const resolveJobNatureSource = extractFunction("resolveJobNature");
 assertIncludes(resolveJobNatureSource, "\\bai\\b", "AI job nature input should be treated as a technical role hint");
+if (resolveJobNatureSource.indexOf("/销售|bd|商务|大客户|客户经理|客户代表|ka|渠道|拓展/") > resolveJobNatureSource.indexOf("/技术|工程师|开发|研发|算法|前端|后端|测试|运维|架构|java|python|\\bai\\b/")) {
+  failures.push("sales-oriented job nature matching should take priority over the broad tech fallback");
+}
 const normalizeLlmJudgementSource = extractFunction("normalizeLlmJudgement");
 assertIncludes(normalizeLlmJudgementSource, "safeNumber(parsed?.score", "LLM judgement normalization should use the model score directly");
 if (source.includes("function reconcileLowLlmScore")) {
@@ -240,6 +243,27 @@ assertIncludes(source, "function repairJsonText", "code should try to repair nea
 assertIncludes(source, "function extractJsonBlock", "code should extract JSON blocks from AI output");
 assertIncludes(source, "parseAiJson", "code should parse AI JSON through the tolerant helper");
 assertIncludes(source, "function firstAiArrayField", "code should accept alternate AI array field names");
+assertIncludes(source, "function extractAiKeywordCandidates", "search keyword generation should use a dedicated tolerant extractor");
+assertIncludes(source, "function sanitizeSearchKeywords", "search keyword generation should use a dedicated precise-title sanitizer");
+assertIncludes(source, "replace(/^[\\s\"'`[{(]+/, \"\")", "search keyword sanitizer should strip leading JSON wrappers");
+assertIncludes(source, "filter(word => !/^[{}\\[\\]()]+$/.test(word))", "search keyword sanitizer should drop bare JSON punctuation");
+assertIncludes(source, "function buildSearchKeywordMessages", "search keyword generation should use a dedicated strict prompt builder");
+const aiProfilePayloadSource = extractFunction("aiProfilePayload");
+assertIncludes(aiProfilePayloadSource, "mode !== \"search_keywords\"", "search keyword payload should drop prior keyword and preference context");
+assertIncludes(aiProfilePayloadSource, "useLiveConfigSummary", "AI payload should support bypassing stale AI summaries");
+const generateSearchKeywordsWithAiSource = extractFunction("generateSearchKeywordsWithAi");
+assertIncludes(generateSearchKeywordsWithAiSource, "readPanelConfig();", "search keyword generation should sync panel state before building the payload");
+assertIncludes(generateSearchKeywordsWithAiSource, "aiProfilePayload({ mode: \"search_keywords\", useLiveConfigSummary: true })", "search keyword generation should use the clean payload mode");
+assertIncludes(generateSearchKeywordsWithAiSource, "const messages = buildSearchKeywordMessages(payload)", "search keyword generation should build messages from the strict helper");
+const generateRulesWithAiSource = extractFunction("generateRulesWithAi");
+assertIncludes(generateRulesWithAiSource, "readPanelConfig();", "rule generation should sync panel state before building the payload");
+assertIncludes(generateRulesWithAiSource, "aiProfilePayload({ useLiveConfigSummary: true })", "rule generation should use a live local config summary");
+assertIncludes(source, "normalizedNature 和 targetDirections", "search keyword prompt should strongly bind output to job nature and target directions");
+assertIncludes(source, "如果当前 input 里没有某个岗位性质或目标方向，就不要擅自生成该方向的岗位名称", "search keyword prompt should forbid inventing unselected directions");
+assertIncludes(source, "不要输出 analysis 字段", "search keyword prompt should forbid exposing reasoning fields");
+assertIncludes(source, "const fromObject = sanitizeSearchKeywords(findAiArrayField(parsed, fieldNames), 30);", "search keyword generation should recursively read nested keyword arrays");
+assertIncludes(source, "parseMaybeJsonText", "search keyword generation should parse stringified JSON payloads");
+assertIncludes(source, "extractKeywordLines", "search keyword generation should accept line-based keyword responses");
 assertIncludes(source, "search_terms", "search keyword generation should accept search_terms fallback");
 assertIncludes(source, "job_titles", "search keyword generation should accept job_titles fallback");
 assertIncludes(source, "include_keywords", "rules generation should accept include_keywords fallback");
