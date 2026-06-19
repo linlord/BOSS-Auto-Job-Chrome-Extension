@@ -3283,14 +3283,14 @@
       <div class="baf-title">
         <div class="baf-title-main">
           <div class="baf-brand-row">
-            <strong>BOSS Auto Console <span class="baf-version">v2.0.9</span></strong>
+            <strong>BOSS Auto Console <span class="baf-version">v2.0.10</span></strong>
             <span class="baf-brand-tag">专业控制台</span>
           </div>
           <span>职位列表自动筛选、收藏与复核</span>
           <div id="baf-version-panel" class="baf-title-version">
             <span id="baf-version-message" class="baf-title-version-message">版本检测</span>
-            <span id="baf-version-current">v${escapeHtml(chrome.runtime?.getManifest?.().version || "2.0.9")}</span>
-            <span id="baf-version-latest">GitHub 未检测</span>
+            <span id="baf-version-current">v${escapeHtml(chrome.runtime?.getManifest?.().version || "2.0.10")}</span>
+            <span id="baf-version-latest">Github检测更新</span>
             <span id="baf-version-checked-at">未检测</span>
             <button id="baf-check-update" type="button">检测</button>
             <button id="baf-open-release" type="button" class="baf-version-release">下载</button>
@@ -5168,7 +5168,7 @@
   }
 
   function currentExtensionVersion() {
-    return String(chrome.runtime?.getManifest?.().version || "2.0.9");
+    return String(chrome.runtime?.getManifest?.().version || "2.0.10");
   }
 
   function formatUpdateCheckedAt(value) {
@@ -5186,7 +5186,7 @@
   function setVersionStatus(result = {}) {
     setText("#baf-version-current", `v${currentExtensionVersion()}`);
     const sourceLabel = result.source === "main" ? "main" : "GitHub";
-    setText("#baf-version-latest", result.latestVersion ? `${sourceLabel} v${result.latestVersion}` : "GitHub 未检测");
+    setText("#baf-version-latest", result.latestVersion ? `${sourceLabel} v${result.latestVersion}` : "Github检测更新");
     setText("#baf-version-checked-at", formatUpdateCheckedAt(result.checkedAt));
     const panel = document.querySelector("#baf-version-panel");
     const releaseButton = document.querySelector("#baf-open-release");
@@ -5252,13 +5252,34 @@
 
   async function refreshVersionStatus({ showAlert = false } = {}) {
     const button = document.querySelector("#baf-check-update");
+    let uiSettled = false;
+    let uiTimeout = null;
+    const restoreButton = () => {
+      uiSettled = true;
+      if (uiTimeout) clearTimeout(uiTimeout);
+      if (button) {
+        button.disabled = false;
+        button.textContent = "检测";
+      }
+    };
     if (button) {
       button.disabled = true;
       button.textContent = "检测中";
     }
+    uiTimeout = setTimeout(() => {
+      if (uiSettled) return;
+      setVersionStatus({
+        ok: false,
+        error: "检测超时，请重新加载扩展或稍后重试",
+        checkedAt: new Date().toISOString(),
+        releaseUrl: RELEASES_URL
+      });
+      restoreButton();
+    }, 13000);
     setVersionStatus({ checkedAt: new Date().toISOString(), message: "检测中" });
     try {
       const result = await checkGithubUpdate();
+      if (uiSettled) return result;
       setVersionStatus(result);
       if (result.hasUpdate && showAlert) {
         const downloadTarget = result.source === "main" ? "main.zip 下载包" : "GitHub Releases 下载页";
@@ -5272,14 +5293,12 @@
         checkedAt: new Date().toISOString(),
         releaseUrl: RELEASES_URL
       };
+      if (uiSettled) return result;
       setVersionStatus(result);
       if (showAlert) window.alert(`GitHub 更新检测失败：${result.error}`);
       return result;
     } finally {
-      if (button) {
-        button.disabled = false;
-        button.textContent = "检测";
-      }
+      restoreButton();
     }
   }
 
