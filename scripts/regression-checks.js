@@ -296,12 +296,16 @@ assertIncludes(readmeSource, "git push origin v", "README should explain tag pus
 assertIncludes(readmeSource, "main.zip", "README should document the fallback zip download");
 assertIncludes(readmeSource, "chrome://extensions/", "README should include manual extension reload steps");
 assertIncludes(releaseWorkflowSource, "on:", "release workflow should exist");
+assertIncludes(releaseWorkflowSource, "branches:", "release workflow should run on main branch pushes for build artifacts");
+assertIncludes(releaseWorkflowSource, "- main", "release workflow should include the main branch");
 assertIncludes(releaseWorkflowSource, "v*.*.*", "release workflow should run on version tags");
 assertIncludes(releaseWorkflowSource, "workflow_dispatch", "release workflow should support manual runs");
+assertIncludes(releaseWorkflowSource, "should_release", "release workflow should separate artifacts from formal releases");
 assertIncludes(releaseWorkflowSource, "node --check background.js", "release workflow should validate background.js");
 assertIncludes(releaseWorkflowSource, "node --check content.js", "release workflow should validate content.js");
 assertIncludes(releaseWorkflowSource, "node scripts/regression-checks.js", "release workflow should run regression checks");
 assertIncludes(releaseWorkflowSource, "softprops/action-gh-release", "release workflow should create GitHub Releases");
+assertIncludes(releaseWorkflowSource, "if: steps.meta.outputs.should_release == 'true'", "release workflow should only create releases for tags or tagged manual runs");
 assertIncludes(releaseWorkflowSource, "BOSS-Auto-Job-Extension-v${VERSION}.zip", "release workflow should package versioned zip");
 assertIncludes(source, "如果当前 input 里没有某个岗位性质或目标方向，就不要擅自生成该方向的岗位名称", "search keyword prompt should forbid inventing unselected directions");
 assertIncludes(source, "不要输出 analysis 字段", "search keyword prompt should forbid exposing reasoning fields");

@@ -149,7 +149,7 @@ node scripts/regression-checks.js
 
 点击“检测”后，扩展会优先请求 GitHub Releases 最新版本；如果仓库还没有 Releases，会回退检查 `main` 分支的 `manifest.json`。发现新版本时，面板会强提示“发现新版本 vX.X.X”，并显示“下载”按钮。
 
-注意：普通 `git push` 只会上传代码，不会自动生成 Releases 或版本压缩包。要自动发版，需要推送版本标签，触发 GitHub Actions。
+注意：普通 `git push origin main` 会触发 GitHub Actions 自动打包，并在本次 workflow 的 Artifacts 里生成 zip 下载包；它不会创建正式 GitHub Releases。要创建正式 Release，需要推送版本标签。
 
 发布新版本：
 
@@ -162,6 +162,13 @@ git push origin v2.0.7
 ```
 
 GitHub Actions 会自动校验脚本、打包扩展，并创建 GitHub Releases。也可以在 GitHub 仓库的 Actions 页面手动运行 `Build Extension Release`。
+
+临时测试包：
+
+1. 直接 `git push origin main`。
+2. 打开 GitHub 仓库的 Actions 页面。
+3. 进入最新一次 `Build Extension Release`。
+4. 在 Artifacts 下载 `BOSS-Auto-Job-Extension-vX.X.X.zip`。
 
 手动更新步骤：
 
