@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const vm = require("vm");
 
 const source = fs.readFileSync("content.js", "utf8");
@@ -201,8 +201,16 @@ assertIncludes(panelSource, "baf-version-latest", "panel should show the latest 
 assertIncludes(panelSource, "baf-version-checked-at", "panel should show the update check time");
 assertIncludes(panelSource, "baf-check-update", "panel should expose a manual update check button");
 assertIncludes(panelSource, "baf-open-release", "panel should expose a one-click releases button");
-assertIncludes(panelSource, "v2.0.11", "panel should display the bumped extension version");
+assertIncludes(panelSource, "v2.0.13", "panel should display the bumped extension version");
 assertIncludes(panelSource, "Github检测更新", "panel should use the requested unchecked GitHub copy");
+assertIncludes(panelSource, "gpt-5.4", "advanced rules should default to gpt-5.4");
+assertIncludes(source, "function currentAiModelLabel", "visible AI generation text should use the configured model label");
+assertIncludes(source, "已用 ${modelLabel}", "search keyword generation notes should show the configured model");
+assertIncludes(source, "${modelLabel} 正在生成搜索词", "keyword generation status should show the configured model");
+assertIncludes(source, "${modelLabel} 生成加分词/排除词失败", "rules generation errors should show the configured model");
+if (source.includes("deepseek-v4-flash") || backgroundSource.includes("deepseek-v4-flash")) {
+  failures.push("default model should no longer fall back to deepseek-v4-flash");
+}
 assertIncludes(panelSource, "baf-about-box", "advanced rules should include an about box");
 assertIncludes(panelSource, "https://api.toporeduce.cn", "about box should link to TopoReduce");
 assertIncludes(panelSource, "招聘与技术交流 QQ 群", "about box should include a QQ group entry");
@@ -245,7 +253,7 @@ assertIncludes(judgeJobWithLlmSource, "1-100", "LLM prompt should ask for free 1
 assertIncludes(judgeJobWithLlmSource, "不要只给 55、60、70", "LLM prompt should avoid coarse threshold-only scores");
 
 assertIncludes(backgroundSource, "function extractResponseContent", "background should normalize LLM response content");
-assertIncludes(manifestSource, "\"version\": \"2.0.11\"", "manifest version should be bumped for each released change");
+assertIncludes(manifestSource, "\"version\": \"2.0.13\"", "manifest version should be bumped for each released change");
 assertIncludes(manifestSource, "https://api.github.com/*", "manifest should allow GitHub API requests for update checks");
 assertIncludes(manifestSource, "https://raw.githubusercontent.com/*", "manifest should allow raw manifest fallback requests");
 assertIncludes(source, "event.stopPropagation();", "version buttons should not trigger panel drag handlers");

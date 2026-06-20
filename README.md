@@ -117,7 +117,7 @@ https://api.toporeduce.cn/v1/chat/completions
 默认模型：
 
 ```text
-deepseek-v4-flash
+gpt-5.4
 ```
 
 需要在面板中填写并保存第三方大模型 Key。没有 Key 时，下面这些动作会被拦截并给出强提示：

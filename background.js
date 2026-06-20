@@ -173,7 +173,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
       const stored = await chrome.storage.local.get(["bossAiAutoFavAiSettingsV2"]);
       const apiKey = String(stored?.bossAiAutoFavAiSettingsV2?.apiKey || "").trim();
-      const model = String(message.model || stored?.bossAiAutoFavAiSettingsV2?.model || "deepseek-v4-flash").trim() || "deepseek-v4-flash";
+      const model = String(message.model || stored?.bossAiAutoFavAiSettingsV2?.model || "gpt-5.4").trim() || "gpt-5.4";
       const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
       logDeepSeekEvent("request_start", {
         requestId,

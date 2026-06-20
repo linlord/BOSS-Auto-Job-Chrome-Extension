@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   if (window.__bossAiAutoFavLoaded) return;
   window.__bossAiAutoFavLoaded = true;
 
@@ -64,7 +64,7 @@
     ai: {
       provider: "deepseek",
       apiKey: "",
-      model: "deepseek-v4-flash"
+      model: "gpt-5.4"
     },
     localAi: {
       queryInfo: true
@@ -225,10 +225,10 @@
         provider: "deepseek",
         apiKey: "",
         hasKey: Boolean(saved.apiKey),
-        model: saved.model || "deepseek-v4-flash"
+        model: saved.model || "gpt-5.4"
       };
     } catch (_) {
-      return { provider: "deepseek", apiKey: "", hasKey: false, model: "deepseek-v4-flash" };
+      return { provider: "deepseek", apiKey: "", hasKey: false, model: "gpt-5.4" };
     }
   }
 
@@ -308,7 +308,7 @@
       provider: "deepseek",
       apiKey: "",
       hasKey: Boolean(String(next.apiKey || "").trim()),
-      model: String(next.model || state.aiSettings.model || "deepseek-v4-flash").trim() || "deepseek-v4-flash"
+      model: String(next.model || state.aiSettings.model || "gpt-5.4").trim() || "gpt-5.4"
     };
     if (migrated) {
       await storageLocalSet({
@@ -328,7 +328,7 @@
       keyInput.dataset.maskedKey = savedKey ? "1" : "";
       keyInput.placeholder = state.aiSettings.hasKey ? "已保存，可直接替换" : "sk-...";
     }
-    setPanelValue("#baf-ai-model", state.aiSettings.model || "deepseek-v4-flash");
+    setPanelValue("#baf-ai-model", state.aiSettings.model || "gpt-5.4");
     updateAiKeyState();
     updatePanel();
   }
@@ -339,7 +339,7 @@
     const pendingApiKey = isMaskedApiKey(state.aiSettings.apiKey) ? "" : String(state.aiSettings.apiKey || "").trim();
     if (pendingApiKey && !isValidApiKeyForHeader(pendingApiKey)) return false;
     const nextApiKey = String(pendingApiKey || existing.apiKey || "").trim();
-    const nextModel = String(state.aiSettings.model || existing.model || "deepseek-v4-flash").trim() || "deepseek-v4-flash";
+    const nextModel = String(state.aiSettings.model || existing.model || "gpt-5.4").trim() || "gpt-5.4";
     const saved = await storageLocalSet({
       [AI_STORAGE_KEY]: {
         provider: "deepseek",
@@ -372,7 +372,7 @@
       provider: "deepseek",
       apiKey: "",
       hasKey: false,
-      model: state.aiSettings.model || "deepseek-v4-flash"
+      model: state.aiSettings.model || "gpt-5.4"
     };
     const keyInput = document.querySelector("#baf-ai-key");
     if (keyInput) {
@@ -2307,7 +2307,7 @@
     const keyInputEl = document.querySelector("#baf-ai-key");
     const keyInputValue = String(keyInputEl?.value || "").trim();
     if (keyInputValue && !isMaskedApiKey(keyInputValue)) state.aiSettings.apiKey = keyInputValue;
-    state.aiSettings.model = String(document.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "deepseek-v4-flash").trim();
+    state.aiSettings.model = String(document.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "gpt-5.4").trim();
     state.settings = panelSettingsSnapshot();
     saveSettings(state.settings);
     updateConfigSummary();
@@ -2529,7 +2529,7 @@
       ai: {
         provider: "deepseek",
         enabled: Boolean(state.aiSettings.hasKey),
-        model: state.aiSettings.model || "deepseek-v4-flash"
+        model: state.aiSettings.model || "gpt-5.4"
       },
       safety: {
         dailyScanLimit: Number(config.safety.dailyScanLimit || 0),
@@ -2549,9 +2549,10 @@
     const strategy = snapshot.screeningStrategy;
     const directions = snapshot.target.directions.slice(0, 6).join("、") || "未填写";
     const positive = strategy.positiveReference.slice(0, RULE_SEED_LIMIT).join("、") || "按岗位性质和目标方向自动加分";
-    const negative = strategy.directExclude.slice(0, RULE_SEED_LIMIT).join("、") || "待生成规则后由 DeepSeek 分析；当前仅使用底层通用安全过滤";
+    const modelLabel = currentAiModelLabel();
+    const negative = strategy.directExclude.slice(0, RULE_SEED_LIMIT).join("、") || `待生成规则后由 ${modelLabel} 分析；当前仅使用底层通用安全过滤`;
     return [
-      `配置来源：本地预览，点击“生成搜索词”后会由 DeepSeek 重算。`,
+      `配置来源：本地预览，点击“生成搜索词”后会由 ${modelLabel} 重算。`,
       `我要找：${snapshot.target.jobNature} + ${directions}`,
       `地区：${snapshot.target.region || "不限"}`,
       `必须满足：${strategy.mustHave.join("；")}。`,
@@ -2630,7 +2631,7 @@
     setPanelValue("#baf-greet-min-score", config.greeting.minScore || config.threshold);
     setPanelValue("#baf-greet-limit", config.greeting.dailyLimit);
     setPanelValue("#baf-greet-template", config.greeting.template);
-    setPanelValue("#baf-ai-model", state.aiSettings.model || "deepseek-v4-flash");
+    setPanelValue("#baf-ai-model", state.aiSettings.model || "gpt-5.4");
     setPanelValue("#baf-keywords", settings.search?.keywords || currentSearchKeyword());
     setPanelChecked("#baf-include-blank", settings.search?.includeRecommendation ?? true);
     setPanelChecked("#baf-expand-keywords", settings.search?.expandKeywords ?? true);
@@ -3209,7 +3210,7 @@
     setPanelValue("#baf-greet-min-score", config.greeting.minScore || config.threshold);
     setPanelValue("#baf-greet-limit", config.greeting.dailyLimit);
     setPanelValue("#baf-greet-template", config.greeting.template);
-    setPanelValue("#baf-ai-model", state.aiSettings.model || "deepseek-v4-flash");
+    setPanelValue("#baf-ai-model", state.aiSettings.model || "gpt-5.4");
     setPanelValue("#baf-positive", (config.filters.customPositive || []).join("\n"));
     setPanelValue("#baf-negative", (config.filters.customNegative || []).join("\n"));
     setPanelChecked("#baf-include-blank", (state.campaign.keywords || []).includes(""));
@@ -3284,13 +3285,13 @@
       <div class="baf-title">
         <div class="baf-title-main">
           <div class="baf-brand-row">
-            <strong>BOSS Auto Console <span class="baf-version">v2.0.11</span></strong>
+            <strong>BOSS Auto Console <span class="baf-version">v2.0.13</span></strong>
             <span class="baf-brand-tag">专业控制台</span>
           </div>
           <span>职位列表自动筛选、收藏与复核</span>
           <div id="baf-version-panel" class="baf-title-version">
             <span id="baf-version-message" class="baf-title-version-message">版本检测</span>
-            <span id="baf-version-current">v${escapeHtml(chrome.runtime?.getManifest?.().version || "2.0.11")}</span>
+            <span id="baf-version-current">v${escapeHtml(chrome.runtime?.getManifest?.().version || "2.0.13")}</span>
             <span id="baf-version-latest">Github检测更新</span>
             <span id="baf-version-checked-at">未检测</span>
             <button id="baf-check-update" type="button">检测</button>
@@ -3511,7 +3512,7 @@
                 </div>
                 <div class="baf-field baf-ai-row">
                   <label>模型</label>
-                  <input id="baf-ai-model" class="baf-ai-model" value="${escapeAttr(state.aiSettings.model || "deepseek-v4-flash")}" />
+                  <input id="baf-ai-model" class="baf-ai-model" value="${escapeAttr(state.aiSettings.model || "gpt-5.4")}" />
                   <button id="baf-show-key" type="button" class="baf-mini-primary">显示 Key</button>
                   <button id="baf-save-key" type="button" class="baf-mini-primary">保存 Key</button>
                   <button id="baf-clear-ai-key" type="button" class="baf-muted">清除 Key</button>
@@ -4718,7 +4719,7 @@
         return false;
       }
       state.aiSettings.apiKey = typedRealKey;
-      state.aiSettings.model = String(panel.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "deepseek-v4-flash").trim();
+      state.aiSettings.model = String(panel.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "gpt-5.4").trim();
       const saved = await saveAiSettings();
       if (!saved) {
         updateAiKeyState("保存失败");
@@ -4767,7 +4768,7 @@
       window.open(url, "_blank", "noopener,noreferrer");
     });
     panel.querySelector("#baf-ai-model")?.addEventListener("change", async () => {
-      state.aiSettings.model = String(panel.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "deepseek-v4-flash").trim();
+      state.aiSettings.model = String(panel.querySelector("#baf-ai-model")?.value || state.aiSettings.model || "gpt-5.4").trim();
       const saved = await saveAiSettings();
       if (!saved) {
         updateStatus(statusSummary("AI 模型设置保存失败，请稍后重试。"));
@@ -5169,7 +5170,11 @@
   }
 
   function currentExtensionVersion() {
-    return String(chrome.runtime?.getManifest?.().version || "2.0.11");
+    return String(chrome.runtime?.getManifest?.().version || "2.0.13");
+  }
+
+  function currentAiModelLabel() {
+    return String(state.aiSettings?.model || document.querySelector("#baf-ai-model")?.value || "gpt-5.4").trim() || "gpt-5.4";
   }
 
   function formatUpdateCheckedAt(value) {
@@ -5310,7 +5315,7 @@
       }
       chrome.runtime.sendMessage({
         type: "deepseek-chat",
-        model: state.aiSettings.model || "deepseek-v4-flash",
+        model: state.aiSettings.model || "gpt-5.4",
         messages,
         maxTokens
       }, response => {
@@ -5320,7 +5325,7 @@
           return;
         }
         if (!response?.ok) {
-          reject(new Error(response?.error || "DeepSeek 调用失败"));
+          reject(new Error(response?.error || "大模型调用失败"));
           return;
         }
         resolve(response.content);
@@ -5406,7 +5411,7 @@
     const positive = strategy.positiveReference.slice(0, RULE_SEED_LIMIT).join("、") || "按岗位性质和目标方向自动加分";
     const negative = strategy.directExclude.slice(0, RULE_SEED_LIMIT).join("、") || "无明确直接排除词；边界岗位先进待复核";
     return [
-      `配置来源：DeepSeek 已生成，已做目标方向冲突清洗。`,
+      `配置来源：${currentAiModelLabel()} 已生成，已做目标方向冲突清洗。`,
       `我要找：${strategy.target.jobNature} + ${directions}`,
       `地区：${strategy.target.region || config.filters.region || "不限"}`,
       `必须满足：${strategy.mustHave.join("；")}。`,
@@ -5498,7 +5503,7 @@
         parsedShape: aiObjectShape(parsed),
         rawPreview: String(content || "").replace(/\s+/g, " ").trim().slice(0, 260)
       });
-      throw new Error("DeepSeek 没有返回有效搜索词");
+      throw new Error(`${currentAiModelLabel()} 没有返回有效搜索词`);
     }
     if (parsed) applyAiStrategy(parsed);
     const note = parsed ? String(parsed.note || parsed.manual_review_tip || "").replace(/[\r\n]+/g, " ").replace(/["'`]/g, "").slice(0, 120) : "";
@@ -5595,7 +5600,7 @@
         parsedShape: aiObjectShape(parsed),
         rawPreview: String(content || "").replace(/\s+/g, " ").trim().slice(0, 260)
       });
-      throw new Error("DeepSeek 没有返回有效规则词");
+      throw new Error(`${currentAiModelLabel()} 没有返回有效规则词`);
     }
     const note = parsed ? String(parsed.note || "").replace(/[\r\n]+/g, " ").replace(/["'`]/g, "").slice(0, 120) : "";
     return { positive, negative, note };
@@ -5612,26 +5617,28 @@
       return false;
     }
     try {
-      updateStatus(statusSummary("DeepSeek 正在生成搜索词..."));
+      const modelLabel = currentAiModelLabel();
+      updateStatus(statusSummary(`${modelLabel} 正在生成搜索词...`));
       const aiResult = await generateSearchKeywordsWithAi();
       const generated = [...new Set(aiResult.keywords)].slice(0, 18);
       const aiNote = aiResult.note;
       if (!generated.length) {
-        throw new Error("DeepSeek 没有返回有效搜索词");
+        throw new Error(`${modelLabel} 没有返回有效搜索词`);
       }
       setPanelValue("#baf-keywords", generated.join("\n"));
       setPanelChecked("#baf-expand-keywords", true);
       readPanelConfig();
       setNote(
         "#baf-keyword-note",
-        `已用 DeepSeek 按「${profileNotePrefix()}」生成 ${generated.length} 个搜索词。\n${aiNote ? `${aiNote}\n` : ""}重要：先人工确认这一框，删掉不想看的词，补上你知道的岗位叫法；确认后再生成加分词/排除词。第一次每词先跑 100-200。`
+        `已用 ${modelLabel} 按「${profileNotePrefix()}」生成 ${generated.length} 个搜索词。\n${aiNote ? `${aiNote}\n` : ""}重要：先人工确认这一框，删掉不想看的词，补上你知道的岗位叫法；确认后再生成加分词/排除词。第一次每词先跑 100-200。`
       );
-      updateStatus(statusSummary(`DeepSeek 已生成搜索词：${generated.length} 个。`));
+      updateStatus(statusSummary(`${modelLabel} 已生成搜索词：${generated.length} 个。`));
       return true;
     } catch (error) {
-      const message = `DeepSeek 生成搜索词失败：${String(error?.message || error)}`;
+      const modelLabel = currentAiModelLabel();
+      const message = `${modelLabel} 生成搜索词失败：${String(error?.message || error)}`;
       setNote("#baf-keyword-note", `${message}\n不会改用本地规则，请检查 API Key、模型或网络后重试。`);
-      updateStatus(statusSummary("DeepSeek 生成搜索词失败，未使用本地规则兜底。"));
+      updateStatus(statusSummary(`${modelLabel} 生成搜索词失败，未使用本地规则兜底。`));
       debugLog("generate_keywords_llm_failed", { error: String(error?.message || error) });
       return false;
     }
@@ -5659,14 +5666,16 @@
     let generated = null;
     let aiNote = "";
     try {
-      updateStatus(statusSummary("DeepSeek 正在生成加分词/排除词..."));
+      const modelLabel = currentAiModelLabel();
+      updateStatus(statusSummary(`${modelLabel} 正在生成加分词/排除词...`));
       const aiResult = await generateRulesWithAi();
       generated = { positive: aiResult.positive, negative: aiResult.negative };
       aiNote = aiResult.note;
     } catch (error) {
-      const message = `DeepSeek 生成加分词/排除词失败：${String(error?.message || error)}`;
+      const modelLabel = currentAiModelLabel();
+      const message = `${modelLabel} 生成加分词/排除词失败：${String(error?.message || error)}`;
       setNote("#baf-rules-note", `${message}\n不会改用本地规则，请检查 API Key、模型或网络后重试。`);
-      updateStatus(statusSummary("DeepSeek 生成加分词/排除词失败，未使用本地规则兜底。"));
+      updateStatus(statusSummary(`${modelLabel} 生成加分词/排除词失败，未使用本地规则兜底。`));
       debugLog("generate_rules_llm_failed", { error: String(error?.message || error) });
       return false;
     }
@@ -5675,7 +5684,7 @@
     readPanelConfig();
     setNote(
       "#baf-rules-note",
-      `已用 DeepSeek 按「${profileNotePrefix()}」生成少量种子词：加分 ${generated.positive.length} 个、排除 ${generated.negative.length} 个。\n${aiNote ? `${aiNote}\n` : ""}建议手动看一眼：加分词只保留最贴近目标的岗位叫法；排除词只放明显不想看的岗位类型。`
+      `已用 ${currentAiModelLabel()} 按「${profileNotePrefix()}」生成少量种子词：加分 ${generated.positive.length} 个、排除 ${generated.negative.length} 个。\n${aiNote ? `${aiNote}\n` : ""}建议手动看一眼：加分词只保留最贴近目标的岗位叫法；排除词只放明显不想看的岗位类型。`
     );
     if (!options.silent) {
       updateStatus(statusSummary(`已生成加分词/排除词：加分 ${generated.positive.length} 个，排除 ${generated.negative.length} 个。`));
