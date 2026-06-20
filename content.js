@@ -14,6 +14,7 @@
   const KEYWORD_SWITCH_MAX_SEC = 6;
   const SEARCH_PAGE_LOAD_WAIT_MS = 2500;
   const RELEASES_URL = "https://github.com/DamonZS/BOSS-Auto-Job-Extension/releases";
+  let versionCheckSeq = 0;
 
   const config = {
     threshold: 60,
@@ -3283,13 +3284,13 @@
       <div class="baf-title">
         <div class="baf-title-main">
           <div class="baf-brand-row">
-            <strong>BOSS Auto Console <span class="baf-version">v2.0.10</span></strong>
+            <strong>BOSS Auto Console <span class="baf-version">v2.0.11</span></strong>
             <span class="baf-brand-tag">专业控制台</span>
           </div>
           <span>职位列表自动筛选、收藏与复核</span>
           <div id="baf-version-panel" class="baf-title-version">
             <span id="baf-version-message" class="baf-title-version-message">版本检测</span>
-            <span id="baf-version-current">v${escapeHtml(chrome.runtime?.getManifest?.().version || "2.0.10")}</span>
+            <span id="baf-version-current">v${escapeHtml(chrome.runtime?.getManifest?.().version || "2.0.11")}</span>
             <span id="baf-version-latest">Github检测更新</span>
             <span id="baf-version-checked-at">未检测</span>
             <button id="baf-check-update" type="button">检测</button>
@@ -3696,13 +3697,13 @@
       }
       #boss-ai-autofav-panel .baf-title-version button {
         flex: 0 0 auto;
-        min-height: 20px;
-        padding: 2px 6px;
-        border-radius: 6px;
+        min-height: 24px;
+        padding: 4px 9px;
+        border-radius: 7px;
         border: 1px solid rgba(153, 246, 228, .34);
         background: rgba(20, 184, 166, .16);
         color: #ccfbf1;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 800;
         cursor: pointer;
       }
@@ -5168,7 +5169,7 @@
   }
 
   function currentExtensionVersion() {
-    return String(chrome.runtime?.getManifest?.().version || "2.0.10");
+    return String(chrome.runtime?.getManifest?.().version || "2.0.11");
   }
 
   function formatUpdateCheckedAt(value) {
@@ -5251,23 +5252,17 @@
   }
 
   async function refreshVersionStatus({ showAlert = false } = {}) {
+    const checkId = versionCheckSeq + 1;
+    versionCheckSeq = checkId;
     const button = document.querySelector("#baf-check-update");
-    let uiSettled = false;
-    let uiTimeout = null;
+    const isCurrentCheck = () => versionCheckSeq === checkId;
     const restoreButton = () => {
-      uiSettled = true;
+      if (!isCurrentCheck()) return;
       if (uiTimeout) clearTimeout(uiTimeout);
-      if (button) {
-        button.disabled = false;
-        button.textContent = "检测";
-      }
+      if (button) button.textContent = "检测";
     };
-    if (button) {
-      button.disabled = true;
-      button.textContent = "检测中";
-    }
-    uiTimeout = setTimeout(() => {
-      if (uiSettled) return;
+    const uiTimeout = setTimeout(() => {
+      if (!isCurrentCheck()) return;
       setVersionStatus({
         ok: false,
         error: "检测超时，请重新加载扩展或稍后重试",
@@ -5276,10 +5271,13 @@
       });
       restoreButton();
     }, 13000);
+    if (button) {
+      button.textContent = "检测中";
+    }
     setVersionStatus({ checkedAt: new Date().toISOString(), message: "检测中" });
     try {
       const result = await checkGithubUpdate();
-      if (uiSettled) return result;
+      if (!isCurrentCheck()) return result;
       setVersionStatus(result);
       if (result.hasUpdate && showAlert) {
         const downloadTarget = result.source === "main" ? "main.zip 下载包" : "GitHub Releases 下载页";
@@ -5293,7 +5291,7 @@
         checkedAt: new Date().toISOString(),
         releaseUrl: RELEASES_URL
       };
-      if (uiSettled) return result;
+      if (!isCurrentCheck()) return result;
       setVersionStatus(result);
       if (showAlert) window.alert(`GitHub 更新检测失败：${result.error}`);
       return result;
